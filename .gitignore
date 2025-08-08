@@ -15,3 +15,4 @@ models
 runs
 wandb
 ppo_stonky.zip
+**/vectorDB/
