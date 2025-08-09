@@ -24,6 +24,11 @@ from sqlalchemy import create_engine
 # from tqdm.auto import tqdm
 from langchain_huggingface import HuggingFaceEmbeddings
 
+import subprocess
+
+    # This will run the pip upgrade command during deployment
+    # Note: Use with caution and ensure it's necessary for your specific setup.
+result = subprocess.run(["pip", "install", "--upgrade", "pip"], capture_output=True, text=True)
 
 # This function will return a random datetime between two datetime objects.
 def random_date(start, end):
@@ -239,45 +244,48 @@ schema: {database_schema}
 Error: {error}
 '''
 
-user_queries =  [
-    #f"Who are top 5 customers ?",
-    #f"Get me the details of the two oldest employees along with their age.",
-    f"Give me the Product name which has highest orders and show the total orders of this Product."
+user_queries =  st.text_area("Your question for search the database:", height=100)
+# [
+#     #f"Who are top 5 customers ?",
+#     #f"Get me the details of the two oldest employees along with their age.",
+#     f"Give me the Product name which has highest orders and show the total orders of this Product."
 ]
 # st.text_area("Your question for search the database:", placeholder="The database contains information about Categories, CustomerCustomerDemo, CustomerDemographics, Customers, Employees, EmployeeTerritories, Order Details, Orders, Products, Regions, Shippers, Suppliers, and Territories.", height=100)
 sql_queries = []
 info_name = ""
-for user_query in user_queries:
-    resp = model.generate_content(
-        prompt.format(user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option) + special_instructions
-        ).text
-    sql = resp.strip().split('```sql')[1].split(
-        '```')[0].strip()  # Extract SQL query from response
-    sql_queries.append(sql)
-    st.markdown("---")
-    st.write(user_query)
-    print(sql, '\n\n')
-    db_response = None
-    try:
-        
-        db_response = pd.read_sql(sql, engine).to_markdown(index=False)
-        #st.write(db_response)
-        #st.markdown("---")
-    except Exception as e:
-        db_response = model.generate_content(
-            error_handling_prompt.format(
-                error=str(e),
-                user_query=user_query,
-                sql=sql,
-                database_schema=database_schema
-              )
-          ).text
-        st.write(db_response)
-        db_response = db_response.strip().split('```sql')[1].split(
-        '```')[0].strip()
-        info_name = pd.read_sql(db_response, engine)
-        st.write(info_name)
-        st.markdown("---")
+if st.button("Click Me"):
+    if user_queries:
+        for user_query in user_queries:
+            resp = model.generate_content(
+                prompt.format(user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option) + special_instructions
+                ).text
+            sql = resp.strip().split('```sql')[1].split(
+                '```')[0].strip()  # Extract SQL query from response
+            sql_queries.append(sql)
+            st.markdown("---")
+            st.write(user_query)
+            print(sql, '\n\n')
+            db_response = None
+            try:
+
+                db_response = pd.read_sql(sql, engine).to_markdown(index=False)
+                st.write(db_response)
+                #st.markdown("---")
+            except Exception as e:
+                db_response = model.generate_content(
+                    error_handling_prompt.format(
+                        error=str(e),
+                        user_query=user_query,
+                        sql=sql,
+                        database_schema=database_schema
+                      )
+                  ).text
+                st.write(db_response)
+                db_response = db_response.strip().split('```sql')[1].split(
+                '```')[0].strip()
+                info_name = pd.read_sql(db_response, engine)
+                st.write(info_name)
+            st.markdown("---")
 
 
 embedding_function = HuggingFaceEmbeddings(model_name="sentence-transformers/LaBSE")
@@ -346,9 +354,10 @@ stores = {}
 #    # Show the image in Streamlit
 #    # st.image(picture_bytes)
 
-user_rag_queries =  [
-     f"Which category does the '{info_name}' and Give me all the suppliers for that product ?"
-]
+user_rag_queries =  st.text_area("Your question for a followup question above:", height=100)
+# [
+#      f"Which category does the '{info_name}' along with Give results all the suppliers for that product ?"
+# ]
 
 rag_prompt = '''
 You are an AI assistant that can answer questions about a selected database.
@@ -365,27 +374,31 @@ Database Response:
 {data_response}
 
 '''
-st.write('-' * 26 + 'Multi-Table Queries'+'-' * 40)
-for user_query in user_rag_queries:
-    resp = model.generate_content(prompt.format(
-        user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option)).text
-    st.write(resp)
-    resp = resp.strip().split('```sql')[1].split(
-        '```')[0].strip()  # Extract SQL query from response
 
-    try:
-        
-        data_response = pd.read_sql(resp, engine).to_markdown(index=False)
-        
-        llm_resp = model.generate_content(rag_prompt.format(
-            user_query=user_query,
-            resp=resp,
-            data_response=data_response
-        )
-        ).text.strip()        
+if st.button("Click Me"):
+    st.write('-' * 26 + 'Multi-Table RAG'+'-' * 40)
+    if user_rag_queries:
+        for user_query in user_rag_queries:
+            resp = model.generate_content(prompt.format(
+                user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option)).text
+            st.write(resp)
+            resp = resp.strip().split('```sql')[1].split(
+                '```')[0].strip()  # Extract SQL query from response
 
-        st.write(user_query, ' : ')
-        st.write(llm_resp)
-        
-    except Exception as e:
-        print(f"Error executing query: {e}")
+            try:
+
+                data_response = pd.read_sql(resp, engine).to_markdown(index=False)
+                st.write(data_response)
+                llm_resp = model.generate_content(rag_prompt.format(
+                    user_query=user_query,
+                    resp=resp,
+                    data_response=data_response
+                )
+                ).text.strip()        
+
+                st.write(user_query, ' : ')
+                st.write(llm_resp)
+
+                st.markdown("---")
+            except Exception as e:
+                print(f"Error executing query: {e}")
