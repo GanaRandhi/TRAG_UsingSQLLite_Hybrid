@@ -1,3 +1,4 @@
+from operator import index
 import sqlite3
 import os
 from typing import Any
@@ -61,7 +62,7 @@ class LoggingFormatter(logging.Formatter):
         return formatter.format(record)
 
 options = os.listdir("./dist/")
-selected_option = st.selectbox("Select an DB:", options) 
+selected_option = st.selectbox("Select an DB:", options, index=None) 
 st.write(selected_option)
 database_file = "./dist/" + str(selected_option) #@param
 def get_db_connection():
