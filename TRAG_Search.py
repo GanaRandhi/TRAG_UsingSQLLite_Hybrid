@@ -207,7 +207,7 @@ While Trying to solve the customer's query, you can use the following informatio
 User Query: {user_query}
 
 Generate a SQL query to retrieve the requested information from the database.
-database: sqlite:///northwind.db
+database: sqlite:///{selected_option}
 schema details:
 {database_schema}
 '''
@@ -247,7 +247,7 @@ sql_queries = []
 info_name = ""
 for user_query in user_queries:
     resp = model.generate_content(
-        prompt.format(user_query=user_query, database_schema=database_schema, all_tables=all_tables) + special_instructions
+        prompt.format(user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option) + special_instructions
         ).text
     sql = resp.strip().split('```sql')[1].split(
         '```')[0].strip()  # Extract SQL query from response
@@ -366,7 +366,7 @@ Database Response:
 st.write('-' * 26 + 'Multi-Table Queries'+'-' * 40)
 for user_query in user_rag_queries:
     resp = model.generate_content(prompt.format(
-        user_query=user_query, database_schema=database_schema, all_tables=all_tables)).text
+        user_query=user_query, database_schema=database_schema, all_tables=all_tables, selected_option=selected_option)).text
     st.write(resp)
     resp = resp.strip().split('```sql')[1].split(
         '```')[0].strip()  # Extract SQL query from response
