@@ -1,19 +1,25 @@
 import sqlite3
 import os
+from typing import Any
 import streamlit as st
 import logging
 import google.generativeai as genai
 import pandas as pd
+from typing import Optional
+# import json
+# from io import BytesIO
+# import base64
 
+from asyncio.windows_events import NULL
 from cmd import PROMPT
 from datetime import timedelta, datetime
 from random import randint
 from random import choice as rc
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.vectorstores import SQLiteVec
-from tqdm.auto import tqdm
+#from langchain_community.embeddings import OllamaEmbeddings
+# from langchain_community.vectorstores import SQLiteVec
+# from tqdm.auto import tqdm
 from langchain_huggingface import HuggingFaceEmbeddings
 
 
@@ -54,8 +60,10 @@ class LoggingFormatter(logging.Formatter):
         formatter = logging.Formatter(format, "%Y-%m-%d %H:%M:%S", style="{")
         return formatter.format(record)
 
-database_file = "./dist/northwind.db" #@param
-
+options = os.listdir("./dist/")
+selected_option = st.selectbox("Select an DB:", options) 
+st.write(selected_option)
+database_file = "./dist/" + str(selected_option) #@param
 def get_db_connection():
            
     with sqlite3.connect(database_file) as conn:
@@ -77,21 +85,39 @@ def get_all_tables_data():
     table_names = [table[0] for table in tables]   
     
     all_tables_data = {}
-    schema_info = {}
     try:
         for table_name in table_names:
             # Read each table into a Pandas DataFrame
             df = pd.read_sql_query(f'SELECT * FROM "{table_name}"', conn)
             all_tables_data[table_name] = df
-            
-            cursor.execute(f'PRAGMA table_info("{table_name}");')
-            schema_info  = cursor.fetchone()
     except sqlite3.Error as e:
         st.write(f"An error occurred: {e}")
         
     cursor.close()
     conn.close()
-    return table_names, all_tables_data, schema_info 
+    return table_names, all_tables_data
+
+def get_schema(table_name, formatted_string, schema):
+    """
+    Retrieves the schema of a specified table in the SQLite database.
+
+    Args:
+        table_name (str): The name of the table to retrieve schema for.
+        engine: SQLAlchemy engine connected to the SQLite database.
+
+    Returns:
+        str: Formatted string representing the table schema.
+    """
+    conn = get_db_connection()
+    database_schema.setdefault(table_name, [])
+    columns_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+    table_columns = [(col[1], col[2]) for col in columns_info]    
+    formatted_string += f"{table_name}: \n"
+    for col_name, col_type in table_columns:
+        formatted_string += f" {col_name} ({col_type})"
+        database_schema[table_name].append(f"{col_name} ({col_type})")
+    return formatted_string, database_schema
+
 
 # Connect to the DB
 try:        
@@ -107,8 +133,15 @@ try:
 except sqlite3.Error as e:
     st.write(f"An error occurred: {e}")
 
-all_tables, all_tables_data, database_schema = get_all_tables_data()
+all_tables, all_tables_data = get_all_tables_data()
+db_schema = ""
+database_schema={}
+if all_tables:
+    for table_name in all_tables:
+        db_schema, database_schema = get_schema(table_name, db_schema, database_schema)
+    #st.write(f"DB Schema in text: {db_schema}")
 
+###  All Table Names, Tabular Data, Database Schema
 # if all_tables:
 #     st.subheader("Available Tables Names:")
 #     for table_name in all_tables[1:]:
@@ -126,9 +159,11 @@ all_tables, all_tables_data, database_schema = get_all_tables_data()
 
 # if database_schema:
 #     st.subheader("Creating DB Schema")
-#     # st.write(database_schema)
-#     for schema in database_schema:
-#         st.write(schema)
+#     #st.write(database_schema)
+#     for table_name, rows in database_schema.items():
+#         st.write(table_name)
+#         for row in rows:
+#             st.write({row})
 
 load_dotenv()
 # Configure Google Generative AI
@@ -156,17 +191,17 @@ CLEANING_PATTERN = r'[^a-zA-Z0-9]'
 
 prompt = '''
 Your persona:
-You are an AI assistant that can answer questions about a movie database.
-You are a helpful assistant that helps user to find information from northwind database.
-The database contains information about Categories, CustomerCustomerDemo, CustomerDemographics, Customers, Employees, EmployeeTerritories, Order Details, Orders, Products, Regions, 
-Shippers, Suppliers, and Territories.
+You are an AI assistant that can answer questions about a selected database.
+You are a helpful assistant that helps user to find information from selected database.
+The database contains information in tables.
+All the Tables: {all_tables}
 Your task is to answer the user's query based on the provided database information.
 Your persona is polite, friendly and helpful.
 
 While Trying to solve the customer's query, you can use the following information:
  - You can ask clarifying questions to understand the user's needs better.
- - You can use the northwind database that match the user's request.
- - You can provide additional information about the information, such as famous orders, products, and suppliers.
+ - You can use the provided database that match the user's request.
+ - You can provide additional information about the query.
  - You can suggest alternatives or modifications to the information based on the user's preferences.
 
 User Query: {user_query}
@@ -202,15 +237,17 @@ schema: {database_schema}
 Error: {error}
 '''
 
-user_queries =[
+user_queries =  [
     #f"Who are top 5 customers ?",
     #f"Get me the details of the two oldest employees along with their age.",
+    f"Give me the Product name which has highest orders and show the total orders of this Product."
 ]
+# st.text_area("Your question for search the database:", placeholder="The database contains information about Categories, CustomerCustomerDemo, CustomerDemographics, Customers, Employees, EmployeeTerritories, Order Details, Orders, Products, Regions, Shippers, Suppliers, and Territories.", height=100)
 sql_queries = []
-
+info_name = ""
 for user_query in user_queries:
     resp = model.generate_content(
-        prompt.format(user_query=user_query, database_schema=database_schema) + special_instructions
+        prompt.format(user_query=user_query, database_schema=database_schema, all_tables=all_tables) + special_instructions
         ).text
     sql = resp.strip().split('```sql')[1].split(
         '```')[0].strip()  # Extract SQL query from response
@@ -233,41 +270,120 @@ for user_query in user_queries:
                 database_schema=database_schema
               )
           ).text
-        #st.write(db_response)
+        st.write(db_response)
         db_response = db_response.strip().split('```sql')[1].split(
         '```')[0].strip()
-        st.write(pd.read_sql(db_response, engine))
+        info_name = pd.read_sql(db_response, engine)
+        st.write(info_name)
         st.markdown("---")
+
+
 embedding_function = HuggingFaceEmbeddings(model_name="sentence-transformers/LaBSE")
 
 stores = {}
-for table_name in tqdm(all_tables):
-    data = pd.read_sql(
-        f'''
-        SELECT * FROM "{table_name}" LIMIT 3
-        ''',
-        engine
-    )
-    # st.subheader(table_name)
-    # print(data.head().to_markdown())
-    # st.write(data.head().to_markdown())
 
-    data = [str(i) for i in data.to_dict('records')]
+### Commenting for other functions Please uncomment below for Vector Embeddings to work
+# for table_name in tqdm(all_tables):
+#     data = pd.read_sql(
+#         f'''
+#         SELECT * FROM "{table_name}" Limit 3
+#         ''',
+#         engine
+#     )
+#     # st.subheader(table_name)
+#     # print(data.head().to_markdown())
+#     # st.write(data.head().to_markdown())
 
-    connection = SQLiteVec.create_connection(db_file=f"./vectorDB/{table_name}_vec.db")
+#     data = [str(i) for i in data.to_dict('records')]
 
-    vector_store = SQLiteVec(
-        table="intelligence",
-        embedding=embedding_function,
-        connection=connection,
-        )
+#     connection = SQLiteVec.create_connection(db_file=f"./vectorDB/{table_name}_vec.db")
 
-    _ = vector_store.add_texts(texts=data)
-    stores[table_name] = vector_store
+#     vector_store = SQLiteVec(
+#         table="intelligence",
+#         embedding=embedding_function,
+#         connection=connection,
+#         )
+
+#     _ = vector_store.add_texts(texts=data)
+#     stores[table_name] = vector_store
     
-vector_store = stores['Categories']
-query = 'Pictures'
+# def binary_to_bytes(doc_dict):
+    
+#     # Extract and decode the picture binary
+#     doc_dict = json.loads(doc_dict)
+#     picture_data = doc_dict.get("Picture")
+#     # Convert the escaped binary string into bytes
+#     # This assumes Picture was serialized as base64 or raw bytes string
+    
+#     try:
+#         # If stored as raw binary string (escaped like b'\xff\xd8...'), use eval
+#         if isinstance(picture_data, str) and picture_data.startswith("b'"):
+#             # Convert string like: "b'\\xff\\xd8...'" → bytes
+#             picture_bytes = eval(picture_data)  # ⚠️ Safe here ONLY because you control the data
+#             return st.image(BytesIO(picture_bytes), caption="Decoded Image")
+#         else:
+#             st.warning("Picture field not in expected format.")
 
-for doc in vector_store.similarity_search_with_score(query,):
-    st.write(doc)
-    st.markdown("---")
+#     except Exception as e:
+#         st.error(f"Error decoding image: {e}")
+    
+
+# vector_store = stores['Categories']
+# query = 'Picture'
+
+# for doc in vector_store.similarity_search_with_score(query,):
+    
+#     json_str = json.dumps(doc[0].page_content.replace("'", '"'))
+#     doc_dict = json.loads(json_str)
+#     #picture_bytes = binary_to_bytes(doc_dict)
+    
+#     # Convert to a DataFrame
+#     df = pd.DataFrame([doc_dict])  # wrap in list to make it a row
+#     st.markdown("---")
+#     st.dataframe(df, hide_index=True, column_config={"Picture":None})
+#    # Show the image in Streamlit
+#    # st.image(picture_bytes)
+
+user_rag_queries =  [
+     f"Which category does the '{info_name}' and Give me all the suppliers for that product ?"
+]
+
+rag_prompt = '''
+You are an AI assistant that can answer questions about a selected database.
+You are a helpful assistant that helps user to find information from selected database.
+The database contains information in tables.
+All the Tables: {all_tables}
+Your task is to answer the user's query based on the provided database information.
+
+User Query: {user_query}
+
+SQL Query: {resp}
+
+Database Response:
+{data_response}
+
+'''
+st.write('-' * 26 + 'Multi-Table Queries'+'-' * 40)
+for user_query in user_rag_queries:
+    resp = model.generate_content(prompt.format(
+        user_query=user_query, database_schema=database_schema, all_tables=all_tables)).text
+    st.write(resp)
+    resp = resp.strip().split('```sql')[1].split(
+        '```')[0].strip()  # Extract SQL query from response
+
+    try:
+        
+        data_response = pd.read_sql(resp, engine).to_markdown(index=False)
+        
+        llm_resp = model.generate_content(rag_prompt.format(
+            user_query=user_query,
+            resp=resp,
+            data_response=data_response
+        )
+        ).text.strip()        
+
+        st.write(user_query, ' : ')
+        st.write(llm_resp)
+        
+    except Exception as e:
+        print(f"Error executing query: {e}")
