@@ -583,11 +583,11 @@ def build_ddl_prompt(json_parsed):
   dbs={}
   for table_name in json_parsed:
       schema_ , _ = get_schema(table_name,"", dbs)
-      print(schema_)
+    #   print(schema_)
       schemas.append(schema_)
 
   schemas_prompt = '\n\n'.join(schemas)
-  print(schemas)
+#   print(schemas)
   return (schemas_prompt)
 
 def r_of_rag(user_query, schemas_prompt):
@@ -642,10 +642,10 @@ for user_query in user_queries:
     json_parsed = tables_json()
     schemas_prompt = build_ddl_prompt(json_parsed)
     data_response = r_of_rag(user_query,schemas_prompt)
-    st.write(f'R of RAG - Data Response : {data_response}')
+    #st.write(f'R of RAG - Data Response : {data_response}')
     history.append(f'data_context: \n{data_response}')
     llm_resp = ag_of_rag(user_query,data_response,history)
     history.append(f'user_query: {user_query}\nanswer: {llm_resp}')
-    st.write(user_query, ':', llm_resp)
+    #st.write(user_query, ':', llm_resp)
     [st.write(msg, '\n', '-'*80) for i, msg in enumerate(history) if i%2==1]
 # endregion
