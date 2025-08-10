@@ -193,13 +193,13 @@ if all_tables:
 
 # region Display All Table Names, Tabular Data, Database Schema
 ### Display sections for All Table Names, Tabular Data, Database Schema (kept commented out as requested)
-# if all_tables:
-#     st.subheader("Available Tables Names:")
-#     # Iterating from the second element assuming the first is not relevant or handled differently
-#     for table_name in all_tables[1:]:
-#         st.write(f"**{table_name}**")
-# else:
-#     st.info("No tables found in the database.")
+if all_tables:
+    st.subheader("Available Tables Names:")
+    # Iterating from the second element assuming the first is not relevant or handled differently
+    for table_name in all_tables[1:]:
+        st.write(f"**{table_name}**")
+else:
+    st.info("No tables found in the database.")
 
 # if all_tables_data:
 #     st.subheader("Available Tables Data:")
