@@ -2,19 +2,14 @@
 # IMPORTS
 # ==============================================================================
 # Standard library imports
+from asyncio.windows_events import NULL
 import os
 import json
 import subprocess
 import sqlite3
-# from asyncio.windows_events import NULL # Not used, can be removed in a true cleanup, but kept as requested
-# from cmd import PROMPT # Not used, can be removed
-from datetime import timedelta, datetime # Not directly used in the current logic, but could be for future features
-from random import randint, choice as rc # Not directly used in the current logic, but could be for future features
-from typing import Any, Optional
 
 # Third-party imports
 import streamlit as st
-import logging # Not directly used, but good for debugging. Kept as per request to leave commented code.
 import pandas as pd
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -55,6 +50,18 @@ except Exception as e:
 LLM_MODEL_NAME = 'gemini-2.5-flash' # Or 'gemini-pro', 'gemini-2.5-pro' depending on needs
 # Initialize the GenerativeModel
 model = genai.GenerativeModel(LLM_MODEL_NAME)
+
+# ==============================================================================
+# STREAMLIT SESSION STATE INITIALIZATION
+# ==============================================================================
+# Initialize session state variables to control visibility of output blocks.
+# These variables ensure that only one output block is visible at a time.
+if 'show_sql_query_output' not in st.session_state:
+    st.session_state.show_sql_query_output = False
+if 'show_rag_output' not in st.session_state:
+    st.session_state.show_rag_output = False
+if 'show_vector_search_output' not in st.session_state:
+    st.session_state.show_vector_search_output = False
 
 # ==============================================================================
 # DATABASE SELECTION AND CONNECTION
@@ -181,9 +188,10 @@ database_schema = {}
 # Populate the database schema if tables are found
 if all_tables:
     for table_name in all_tables:
-        db_schema, database_schema = get_schema(table_name, db_schema, database_schema)
+        _, database_schema = get_schema(table_name, db_schema, database_schema)
     # st.write(f"DB Schema in text: {db_schema}") # Commented out as in original
 
+# region Display All Table Names, Tabular Data, Database Schema
 ### Display sections for All Table Names, Tabular Data, Database Schema (kept commented out as requested)
 # if all_tables:
 #     st.subheader("Available Tables Names:")
@@ -209,8 +217,10 @@ if all_tables:
 #         for row in rows:
 #             st.write({row})
 
+# endregion
+
 # ==============================================================================
-# LANGUAGE MODEL PROMPTS DEFINITION
+# region LANGUAGE MODEL PROMPTS DEFINITION
 # ==============================================================================
 
 # Create a SQLAlchemy engine for connecting to the SQLite database
@@ -285,8 +295,51 @@ Database Response:
 {data_response}
 '''
 
+# Prompt template for Retrieval-Augmented Generation (RAG) using Advanced and Complex Aggregations & Ranking
+table_choice_prompt = '''
+
+You are an experienced Engineer and have been given the task of being the data retriever.
+Given the user query, make a choice on the tables to be used to fetch the data and then be able to build the answer.
+
+user query: {user_query}
+
+table names: {all_tables}
+
+Respond with the table names to be used as a json list of table names
+'''
+r_prompt= '''
+You are an AI assistant that can answer questions about a movie database.
+The database contains information in tables.
+All the Tables: {all_tables}
+Your task is to answer the user's query based on the provided database information.
+
+User Query: {user_query}
+
+Generate a SQL query to retrieve the requested information from the database.
+database: sqlite:///{selected_option}
+
+database schema:
+{database_schema}
+'''
+ag_prompt = '''
+You are an AI assistant that can answer questions about a movie database.
+The database contains information in tables.
+All the Tables: {all_tables}
+
+Your task is to answer the user's query based on the provided database information.
+
+User Query: {user_query}
+
+Chat History:
+{chat_history}
+
+Database Response:
+{data_response}
+'''
+# endregion
+
 # ==============================================================================
-# SQL QUERY GENERATION AND EXECUTION UI
+# region SQL QUERY GENERATION AND EXECUTION UI
 # ==============================================================================
 
 # Streamlit text area for the user to input their query for the database
@@ -304,7 +357,12 @@ sql_queries = []
 info_name = ""
 
 # Button to trigger the SQL query generation and execution process
-if st.button("Click Me", key="button1"):
+# Button to trigger the SQL query generation and execution process
+# When this button is clicked, it will show its output and hide others.
+if st.button("Generate SQL and Query Database", key="button_sql_query"):
+    st.session_state.show_sql_query_output = True
+    st.session_state.show_vector_search_output = False
+    st.session_state.show_rag_output = False
     if user_query: # Ensure there's a user query to process
         # Generate the SQL query using the LLM, including special instructions for error testing
         resp = model.generate_content(
@@ -344,9 +402,11 @@ if st.button("Click Me", key="button1"):
                 st.write(f"Could not extract or execute fixed query: {fix_e}")
                 st.write("Please check the generated error handling response.")
         st.markdown("---") # Another UI separator
+        
+# endregion
 
 # # ==============================================================================
-# # VECTOR SEARCH AND EMBEDDING GENERATION
+# region # VECTOR SEARCH AND EMBEDDING GENERATION
 # # ==============================================================================
 
 # def check_existence(filename_to_check: str) -> bool:
@@ -424,7 +484,10 @@ if st.button("Click Me", key="button1"):
 #     query_vector_search = st.text_area("Enter your Vector Search Word:", key="vector_search_query")
 
 #     # Button to trigger the vector search
-#     if st.button("Vector Search Me", key="button3"):
+# if st.button("Vector Search Me", key="button_vector_search"):
+        # st.session_state.show_vector_search_output = True
+        # st.session_state.show_sql_query_output = False
+        # st.session_state.show_rag_output = False
 #         if vector_store_selection_name and query_vector_search:
 #             # Retrieve the appropriate vector store instance based on user selection
 #             selected_vector_store = stores.get(vector_store_selection_name)
@@ -449,22 +512,27 @@ if st.button("Click Me", key="button1"):
 #         else:
 #             st.warning("Please select a table and enter a query for vector search.")
 
+# endregion
+
 # ==============================================================================
-# MULTI-TABLE RETRIEVAL-AUGMENTED GENERATION (RAG)
+# region MULTI-TABLE RETRIEVAL-AUGMENTED GENERATION (RAG)
 # ==============================================================================
 
 # Streamlit text area for a follow-up question, often used in a RAG context
-user_rag_query = st.text_area("Your question for a followup question above:", height=100, key="rag_followup_query")
+user_query_for_rag = st.text_area("Your question for a followup question above:", height=100, key="rag_followup_query")
 # Example RAG queries (commented out in original, keeping as is)
 # [
 #      f"Which category does the '{info_name}' along with Give results all the suppliers for that product ?"
 # ]
 
 # Button to trigger the Multi-Table RAG process
-if st.button("Click Me", key="button2"):
-    st.write('-' * 26 + 'Multi-Table RAG'+'-' * 40) # UI header
-    if user_rag_query: # Ensure there's a follow-up query
-        user_query_for_rag = user_rag_query # Use a distinct variable name for clarity
+# When this button is clicked, it will show its output and hide others.
+if st.button("Multi-Table RAG Search", key="button_multi_tbl_rag"):
+    st.session_state.show_rag_output = True
+    st.session_state.show_sql_query_output = False
+    st.session_state.show_vector_search_output = False
+    # st.write('-' * 26 + 'Multi-Table RAG'+'-' * 40) # UI header
+    if user_query_for_rag: # Ensure there's a follow-up query
         # Generate a new SQL query based on the RAG query using the main prompt
         resp_llm_sql = model.generate_content(prompt.format(
             user_query=user_query_for_rag,
@@ -499,3 +567,85 @@ if st.button("Click Me", key="button2"):
         except Exception as e:
             st.error(f"Error during RAG process: {e}")
             st.write(f"Failed SQL Query: `{generated_sql}`")
+#endregion
+
+# ===================================================================================
+# region Advanced and Complex Aggregations & Ranking RETRIEVAL-AUGMENTED GENERATION (RAG)
+# ===================================================================================
+def tables_json():
+    
+    table_choice = model.generate_content(table_choice_prompt).text
+    json_parsed = json.loads(table_choice.split('```json')[-1].split('```')[0])
+    return (json_parsed)
+
+def build_ddl_prompt(json_parsed):
+  schemas = []
+  dbs={}
+  for table_name in json_parsed:
+      schema_ , _ = get_schema(table_name,"", dbs)
+      print(schema_)
+      schemas.append(schema_)
+
+  schemas_prompt = '\n\n'.join(schemas)
+  print(schemas)
+  return (schemas_prompt)
+
+def r_of_rag(user_query, schemas_prompt):
+
+  resp = model.generate_content(r_prompt.format(
+    user_query=user_query, 
+    database_schema=schemas_prompt, 
+    all_tables = all_tables,    
+    selected_option=selected_option
+    )).text
+  try:
+    st.write(resp)
+    sql = resp.strip().split('```sql')[1].split(
+      '```')[0].strip()  # Extract SQL query from response
+    data_response = pd.read_sql(sql, engine).to_markdown(index=False)
+    return data_response
+  except Exception as e:
+    print(e)
+    return ""
+
+def ag_of_rag(user_query, data_response, chat_history):
+    try:
+        llm_resp = model.generate_content(ag_prompt.format(
+            user_query=user_query,
+            data_response=data_response,
+            chat_history=chat_history,
+            all_tables=all_tables
+        )).text.strip()  
+        return llm_resp 
+    except Exception as e:
+        st.write(f"Error executing query: {e}")
+
+# Streamlit text area for a follow-up question, often used in a RAG context
+user_input_adv_rag = st.text_area("Your question for a Adv & Complex questions(shift=enter for multi lines) above:", height=150, key="rag_adv_cmplx_query")
+# Example RAG queries (commented out in original, keeping as is)
+# [
+#      f'I need to understand the popularity of the movie {info_name}',
+#      f'What are the movies in the similar popularity scale or higher?',
+#      f'What are the most common Genres for these movies?',
+#      f'Ok, I want to understand what could be a common cast to such successful movies. Rank them by their performance in terms of overall movie rating'
+# ]
+# Check if there's any input
+user_queries =[]
+history = []
+if user_input_adv_rag:
+    # Split the input string into a list of lines
+    user_queries = user_input_adv_rag.splitlines()
+    # for line in lines:
+    #     st.write(f"- {line}")
+
+for user_query in user_queries:
+    json_parsed = tables_json()
+    schemas_prompt = build_ddl_prompt(json_parsed)
+    data_response = r_of_rag(user_query,schemas_prompt)
+    st.write(f'R of RAG - Data Response : {data_response}')
+    history.append(f'data_context: \n{data_response}')
+    llm_resp = ag_of_rag(user_query,data_response,history)
+    history.append(f'user_query: {user_query}\nanswer: {llm_resp}')
+    st.write(user_query, ':', llm_resp)
+    [st.write(msg, '\n', '-'*80) for i, msg in enumerate(history) if i%2==1]
+# endregion
