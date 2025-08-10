@@ -357,12 +357,12 @@ sql_queries = []
 info_name = ""
 
 # Button to trigger the SQL query generation and execution process
-# Button to trigger the SQL query generation and execution process
 # When this button is clicked, it will show its output and hide others.
 if st.button("Generate SQL and Query Database", key="button_sql_query"):
     st.session_state.show_sql_query_output = True
     st.session_state.show_vector_search_output = False
     st.session_state.show_rag_output = False
+    st.session_state.show_adv_cmplx_rag_output = False
     if user_query: # Ensure there's a user query to process
         # Generate the SQL query using the LLM, including special instructions for error testing
         resp = model.generate_content(
@@ -405,9 +405,9 @@ if st.button("Generate SQL and Query Database", key="button_sql_query"):
         
 # endregion
 
-# # ==============================================================================
+# ==============================================================================
 # region # VECTOR SEARCH AND EMBEDDING GENERATION
-# # ==============================================================================
+# ==============================================================================
 
 # def check_existence(filename_to_check: str) -> bool:
 #     """
@@ -488,6 +488,7 @@ if st.button("Generate SQL and Query Database", key="button_sql_query"):
         # st.session_state.show_vector_search_output = True
         # st.session_state.show_sql_query_output = False
         # st.session_state.show_rag_output = False
+        # st.session_state.show_adv_cmplx_rag_output = False
 #         if vector_store_selection_name and query_vector_search:
 #             # Retrieve the appropriate vector store instance based on user selection
 #             selected_vector_store = stores.get(vector_store_selection_name)
@@ -531,7 +532,8 @@ if st.button("Multi-Table RAG Search", key="button_multi_tbl_rag"):
     st.session_state.show_rag_output = True
     st.session_state.show_sql_query_output = False
     st.session_state.show_vector_search_output = False
-    # st.write('-' * 26 + 'Multi-Table RAG'+'-' * 40) # UI header
+    st.session_state.show_adv_cmplx_rag_output = False
+    st.write('-' * 26 + 'Multi-Table RAG'+'-' * 40) # UI header
     if user_query_for_rag: # Ensure there's a follow-up query
         # Generate a new SQL query based on the RAG query using the main prompt
         resp_llm_sql = model.generate_content(prompt.format(
@@ -621,7 +623,7 @@ def ag_of_rag(user_query, data_response, chat_history):
         st.write(f"Error executing query: {e}")
 
 # Streamlit text area for a follow-up question, often used in a RAG context
-user_input_adv_rag = st.text_area("Your question for a Adv & Complex questions(shift=enter for multi lines) above:", height=150, key="rag_adv_cmplx_query")
+user_input_adv_rag = st.text_area("Your question for a Adv & Complex questions(shift=enter for multi lines):", height=150, key="rag_adv_cmplx_query")
 # Example RAG queries (commented out in original, keeping as is)
 # [
 #      f'I need to understand the popularity of the movie {info_name}',
@@ -629,23 +631,31 @@ user_input_adv_rag = st.text_area("Your question for a Adv & Complex questions(s
 #      f'What are the most common Genres for these movies?',
 #      f'Ok, I want to understand what could be a common cast to such successful movies. Rank them by their performance in terms of overall movie rating'
 # ]
-# Check if there's any input
-user_queries =[]
-history = []
-if user_input_adv_rag:
-    # Split the input string into a list of lines
-    user_queries = user_input_adv_rag.splitlines()
-    # for line in lines:
-    #     st.write(f"- {line}")
 
-for user_query in user_queries:
-    json_parsed = tables_json()
-    schemas_prompt = build_ddl_prompt(json_parsed)
-    data_response = r_of_rag(user_query,schemas_prompt)
-    #st.write(f'R of RAG - Data Response : {data_response}')
-    history.append(f'data_context: \n{data_response}')
-    llm_resp = ag_of_rag(user_query,data_response,history)
-    history.append(f'user_query: {user_query}\nanswer: {llm_resp}')
-    #st.write(user_query, ':', llm_resp)
-    [st.write(msg, '\n', '-'*80) for i, msg in enumerate(history) if i%2==1]
+# Button to trigger the Multi-Table RAG process
+# When this button is clicked, it will show its output and hide others.
+if st.button("Adv & Complex Aggr RAG", key="button_adv_complex_rag"):
+    st.session_state.show_adv_cmplx_rag_output = True
+    st.session_state.show_rag_output = False
+    st.session_state.show_sql_query_output = False
+    st.session_state.show_vector_search_output = False
+# Check if there's any input
+    user_queries =[]
+    history = []
+    if user_input_adv_rag:
+        # Split the input string into a list of lines
+        user_queries = user_input_adv_rag.splitlines()
+        # for line in lines:
+        #     st.write(f"- {line}")
+
+    for user_query in user_queries:
+        json_parsed = tables_json()
+        schemas_prompt = build_ddl_prompt(json_parsed)
+        data_response = r_of_rag(user_query,schemas_prompt)
+        #st.write(f'R of RAG - Data Response : {data_response}')
+        history.append(f'data_context: \n{data_response}')
+        llm_resp = ag_of_rag(user_query,data_response,history)
+        history.append(f'user_query: {user_query}\nanswer: {llm_resp}')
+        #st.write(user_query, ':', llm_resp)
+        [st.write(msg, '\n', '-'*80) for i, msg in enumerate(history) if i%2==1]
 # endregion
